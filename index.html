@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Find Boss & Weakest</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap');
+        body { font-family: 'Noto Sans KR', sans-serif; user-select: none; }
+
+        .draggable-source { cursor: grab; touch-action: none; }
+        .draggable-source:active { cursor: grabbing; }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+            20%, 40%, 60%, 80% { transform: translateX(4px); }
+        }
+        .shaking { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+
+        .heart-icon { transition: all 0.3s; }
+        .heart-lost { filter: grayscale(100%); opacity: 0.2; }
+
+        .img-fallback {
+            display: flex; align-items: center; justify-content: center;
+            background-color: #f3f4f6; color: #9ca3af; font-size: 1.5rem;
+        }
+
+        /* 구역 스타일 */
+        .zone-boss { background-color: #fef9c3; border-color: #eab308; } /* Yellow */
+        .zone-weakest { background-color: #f3f4f6; border-color: #9ca3af; } /* Gray */
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- 상단: 남은 기회 (우측 상단 배치) -->
+    <div class="w-full max-w-5xl flex justify-end items-center mb-4 px-4 h-12">
+        <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200">
+            <span class="text-slate-500 font-bold text-sm mr-2">남은 기회</span>
+            <div id="hearts" class="flex gap-1 text-2xl text-red-500">
+                <span class="heart-icon">❤️</span>
+                <span class="heart-icon">❤️</span>
+                <span class="heart-icon">❤️</span>
+                <span class="heart-icon">❤️</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 메인 게임 영역 -->
+    <div class="flex flex-col lg:flex-row gap-6 w-full max-w-5xl h-[550px]">
+
+        <!-- 왼쪽: 배틀존 (Arena) -->
+        <div class="bg-white rounded-3xl shadow-xl flex-[2] relative overflow-hidden border-4 border-slate-200 flex flex-col">
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5">
+            </div>
+
+            <!-- 슬롯 (간격 gap-16으로 증가) -->
+            <div class="flex-1 flex items-center justify-center gap-8 md:gap-20 relative z-10 px-4">
+                <div id="arena-1" class="drop-zone w-36 h-32 md:w-48 md:h-40 bg-slate-100 rounded-2xl border-4 border-dashed border-slate-300 flex items-center justify-center shadow-inner p-2"
+                     ondrop="drop(event, 'arena')" ondragover="allowDrop(event)"></div>
+                
+                <div class="text-4xl font-black text-slate-300 shrink-0">VS</div>
+                
+                <div id="arena-2" class="drop-zone w-36 h-32 md:w-48 md:h-40 bg-slate-100 rounded-2xl border-4 border-dashed border-slate-300 flex items-center justify-center shadow-inner p-2"
+                     ondrop="drop(event, 'arena')" ondragover="allowDrop(event)"></div>
+            </div>
+
+            <div class="h-14 flex items-center justify-center bg-slate-50 border-t border-slate-100 z-20">
+                <p id="msg" class="text-slate-500 font-bold text-sm animate-pulse">
+                    고양이를 놓아 비교하세요 (낮은 서열이 하악질)
+                </p>
+            </div>
+        </div>
+
+        <!-- 오른쪽: 대기실 & 정답존 -->
+        <div class="flex flex-col gap-3 w-full lg:w-72 h-full">
+            
+            <!-- 대기실 -->
+            <div id="bench" class="bg-white p-3 rounded-3xl shadow-lg h-32 grid grid-cols-4 gap-2 content-center border-2 border-slate-100"
+                 ondrop="drop(event, 'bench')" ondragover="allowDrop(event)">
+                 <!-- 고양이 생성 -->
+            </div>
+
+            <!-- 정답 제출 1: BOSS -->
+            <div id="zone-boss" class="drop-zone zone-boss flex-1 rounded-3xl shadow-md border-4 border-dashed flex flex-col items-center justify-center relative transition-colors p-2"
+                 ondrop="drop(event, 'result')" ondragover="allowDrop(event)">
+                <div class="placeholder text-center pointer-events-none">
+                    <span class="text-4xl block mb-2">👑</span>
+                    <span class="text-yellow-800 font-black text-base break-keep">가장 서열이 높은 고양이</span>
+                </div>
+            </div>
+
+            <!-- 정답 제출 2: WEAKEST -->
+            <div id="zone-weakest" class="drop-zone zone-weakest flex-1 rounded-3xl shadow-md border-4 border-dashed flex flex-col items-center justify-center relative transition-colors p-2"
+                 ondrop="drop(event, 'result')" ondragover="allowDrop(event)">
+                <div class="placeholder text-center pointer-events-none">
+                    <span class="text-4xl block mb-2">🦴</span>
+                    <span class="text-slate-500 font-black text-base break-keep">가장 서열이 낮은 고양이</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <button onclick="location.reload()" class="mt-6 text-slate-400 hover:text-slate-600 font-bold text-sm underline">
+        리셋
+    </button>
+
+    <!-- 템플릿 -->
+    <template id="cat-template">
+        <!-- object-contain 적용 및 aspect-ratio 제거/조정 -->
+        <div class="draggable-source w-full h-full bg-white rounded-xl shadow-sm border border-slate-200 p-1 relative hover:scale-105 transition-transform z-30 flex items-center justify-center" draggable="true" ondragstart="drag(event)">
+            <div class="w-full h-full rounded-lg overflow-hidden relative bg-white flex items-center justify-center">
+                <!-- 이미지가 잘리지 않도록 object-contain 사용 -->
+                <img src="" class="w-full h-full object-contain pointer-events-none" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <div class="img-fallback w-full h-full absolute top-0 left-0 hidden pointer-events-none text-xl">🐱</div>
+            </div>
+        </div>
+    </template>
+
+    <!-- 결과 모달 -->
+    <div id="result-modal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl border-4">
+            <div id="modal-icon" class="text-6xl mb-4"></div>
+            <h2 id="modal-title" class="text-3xl font-black mb-2"></h2>
+            <p id="modal-desc" class="text-slate-500 font-medium mb-6 whitespace-pre-line"></p>
+            <button onclick="location.reload()" class="w-full py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-700">다시 도전</button>
+        </div>
+    </div>
+
+    <script>
+        // Strength: 1(꼴찌) ~ 4(대장)
+        let cats = [
+            { id: '1', img: 'cat1.png', angryImg: 'angry_cat1.png', strength: 0 },
+            { id: '2', img: 'cat2.png', angryImg: 'angry_cat2.png', strength: 0 },
+            { id: '3', img: 'cat3.png', angryImg: 'angry_cat3.png', strength: 0 },
+            { id: '4', img: 'cat4.png', angryImg: 'angry_cat4.png', strength: 0 }
+        ];
+
+        let chances = 4; // 4회 기회
+        let isProcessing = false;
+
+        function init() {
+            const strengths = [1, 2, 3, 4].sort(() => Math.random() - 0.5);
+            cats.forEach((c, i) => c.strength = strengths[i]);
+
+            const bench = document.getElementById('bench');
+            const tmpl = document.getElementById('cat-template');
+
+            cats.forEach(c => {
+                const clone = tmpl.content.cloneNode(true);
+                const el = clone.querySelector('.draggable-source');
+                el.id = `cat-${c.id}`;
+                el.dataset.id = c.id;
+                el.querySelector('img').src = c.img;
+                bench.appendChild(el);
+            });
+        }
+
+        function allowDrop(ev) { ev.preventDefault(); }
+        function drag(ev) { ev.dataTransfer.setData("text", ev.target.id); }
+
+        function drop(ev, zoneType) {
+            ev.preventDefault();
+            const id = ev.dataTransfer.getData("text");
+            const draggedEl = document.getElementById(id);
+            const dropZone = ev.target.closest('.drop-zone') || ev.target.closest('#bench');
+
+            if (!dropZone) return;
+
+            // 아레나 진입 시 기회 체크
+            if (zoneType === 'arena' && chances <= 0) {
+                shakeUI(document.getElementById('hearts'));
+                return;
+            }
+
+            // 기존에 있던 고양이 벤치로 방출 (교체 로직)
+            if (dropZone.id !== 'bench') {
+                const existing = dropZone.querySelector('.draggable-source');
+                if (existing) {
+                    document.getElementById('bench').appendChild(existing);
+                    resetCatImage(existing);
+                }
+            }
+
+            dropZone.appendChild(draggedEl);
+            resetCatImage(draggedEl);
+
+            // 플레이스홀더 토글 (정답존만)
+            togglePlaceholders();
+
+            // 로직 분기
+            if (zoneType === 'arena') {
+                checkFight();
+            } else if (zoneType === 'result') {
+                checkWinCondition();
+            }
+        }
+
+        function togglePlaceholders() {
+            const bossZone = document.getElementById('zone-boss');
+            const weakestZone = document.getElementById('zone-weakest');
+            
+            bossZone.querySelector('.placeholder').style.display = 
+                bossZone.querySelector('.draggable-source') ? 'none' : 'block';
+                
+            weakestZone.querySelector('.placeholder').style.display = 
+                weakestZone.querySelector('.draggable-source') ? 'none' : 'block';
+        }
+
+        function checkFight() {
+            if (isProcessing) return;
+
+            const slot1 = document.getElementById('arena-1');
+            const slot2 = document.getElementById('arena-2');
+            const c1 = slot1.querySelector('.draggable-source');
+            const c2 = slot2.querySelector('.draggable-source');
+
+            if (c1 && c2) {
+                if (chances <= 0) return;
+
+                isProcessing = true;
+                chances--;
+                updateHearts();
+
+                const d1 = cats.find(c => c.id === c1.dataset.id);
+                const d2 = cats.find(c => c.id === c2.dataset.id);
+                
+                // Strength 낮으면 하악질
+                let loserEl, loserData;
+                if (d1.strength < d2.strength) {
+                    loserEl = c1; loserData = d1;
+                } else {
+                    loserEl = c2; loserData = d2;
+                }
+
+                document.getElementById('msg').textContent = "비교 중...";
+
+                setTimeout(() => {
+                    const imgEl = loserEl.querySelector('img');
+                    imgEl.src = loserData.angryImg; 
+                    loserEl.classList.add('shaking');
+
+                    setTimeout(() => {
+                        isProcessing = false;
+                        if (chances === 0) {
+                            const msgEl = document.getElementById('msg');
+                            msgEl.textContent = "기회 종료! 정답 칸에 고양이를 배치하세요.";
+                            msgEl.className = "text-red-500 font-black text-sm animate-bounce";
+                        } else {
+                            document.getElementById('msg').textContent = "고양이를 놓아 비교하세요";
+                        }
+                    }, 500);
+                }, 300);
+            }
+        }
+
+        function checkWinCondition() {
+            const bossZone = document.getElementById('zone-boss');
+            const weakestZone = document.getElementById('zone-weakest');
+
+            const bossCat = bossZone.querySelector('.draggable-source');
+            const weakestCat = weakestZone.querySelector('.draggable-source');
+
+            // 두 칸이 모두 채워져야 결과 판정
+            if (bossCat && weakestCat) {
+                const bData = cats.find(c => c.id === bossCat.dataset.id);
+                const wData = cats.find(c => c.id === weakestCat.dataset.id);
+                
+                showResult(bData.strength === 4, wData.strength === 1);
+            }
+        }
+
+        function showResult(isBossCorrect, isWeakestCorrect) {
+            const modal = document.getElementById('result-modal');
+            const title = document.getElementById('modal-title');
+            const icon = document.getElementById('modal-icon');
+            const desc = document.getElementById('modal-desc');
+            const container = modal.querySelector('div'); // border color change
+
+            modal.classList.remove('hidden');
+
+            if (isBossCorrect && isWeakestCorrect) {
+                icon.textContent = "🏆";
+                title.textContent = "완벽합니다!";
+                title.className = "text-4xl font-black text-green-600 mb-2";
+                desc.textContent = "대장과 꼴찌를 모두 찾았습니다!";
+                container.className = "bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl border-4 border-green-500";
+            } else {
+                icon.textContent = "😅";
+                title.textContent = "실패했습니다";
+                title.className = "text-4xl font-black text-red-500 mb-2";
+                
+                let failMsg = [];
+                if (!isBossCorrect) failMsg.push("- 대장이 틀렸습니다.");
+                if (!isWeakestCorrect) failMsg.push("- 꼴찌가 틀렸습니다.");
+                
+                desc.textContent = failMsg.join("\n");
+                container.className = "bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl border-4 border-red-500";
+            }
+        }
+
+        function resetCatImage(el) {
+            const data = cats.find(c => c.id === el.dataset.id);
+            if (data) el.querySelector('img').src = data.img;
+            el.classList.remove('shaking');
+        }
+
+        function updateHearts() {
+            const hearts = document.querySelectorAll('.heart-icon');
+            // 4개 기준
+            for (let i = 0; i < 4; i++) {
+                if (i >= chances) hearts[3-i].classList.add('heart-lost');
+            }
+        }
+
+        function shakeUI(el) {
+            el.classList.add('shaking');
+            setTimeout(() => el.classList.remove('shaking'), 500);
+        }
+
+        init();
+    </script>
+</body>
+</html>
